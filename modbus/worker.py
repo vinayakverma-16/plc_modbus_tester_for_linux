@@ -30,55 +30,70 @@ class ModbusWorker(QThread):
         self._stats: ConnectionStats = ConnectionStats()
         self._registers: dict[int, RegisterData] = {}
 
+        self._connect_requested = False
+        self._pending_settings: Optional[ConnectionSettings] = None
+        self._disconnect_requested = False
+
     @property
     def stats(self) -> ConnectionStats:
         return self._stats
 
     def connect_device(self, settings: ConnectionSettings) -> None:
         with QMutexLocker(self._mutex):
-            self._settings = settings
-            self._disconnect_client()
-            self._stats = ConnectionStats()
-            try:
-                if settings.connection_type == ConnectionType.TCP:
-                    from pymodbus.client import ModbusTcpClient
-                    self._client = ModbusTcpClient(
-                        host=settings.host,
-                        port=settings.port,
-                        timeout=settings.timeout,
-                    )
-                elif settings.connection_type == ConnectionType.RTU:
-                    from pymodbus.client import ModbusSerialClient
-                    self._client = ModbusSerialClient(
-                        method="rtu",
-                        port=settings.com_port,
-                        baudrate=settings.baud_rate,
-                        parity=settings.parity.value,
-                        stopbits=settings.stop_bits,
-                        bytesize=settings.data_bits,
-                        timeout=settings.timeout,
-                    )
-                elif settings.connection_type == ConnectionType.ASCII:
-                    from pymodbus.client import ModbusSerialClient
-                    self._client = ModbusSerialClient(
-                        method="ascii",
-                        port=settings.com_port,
-                        baudrate=settings.baud_rate,
-                        parity=settings.parity.value,
-                        stopbits=settings.stop_bits,
-                        bytesize=settings.data_bits,
-                        timeout=settings.timeout,
-                    )
-                result = self._client.connect()
-                self._stats.connected = result
-                self.connection_changed.emit(result, "Connected" if result else "Connection failed")
-            except Exception as e:
-                self._stats.connected = False
-                self.connection_changed.emit(False, str(e))
+            self._pending_settings = settings
+            self._connect_requested = True
+        if not self.isRunning():
+            self.start()
 
     def disconnect(self) -> None:
         with QMutexLocker(self._mutex):
-            self._disconnect_client()
+            self._disconnect_requested = True
+
+    def _do_connect(self, settings: ConnectionSettings) -> None:
+        self._disconnect_client()
+        self._stats = ConnectionStats()
+        try:
+            if settings.connection_type == ConnectionType.TCP:
+                from pymodbus.client import ModbusTcpClient
+                self._client = ModbusTcpClient(
+                    host=settings.host,
+                    port=settings.port,
+                    timeout=settings.timeout,
+                )
+            elif settings.connection_type == ConnectionType.RTU:
+                from pymodbus.client import ModbusSerialClient
+                self._client = ModbusSerialClient(
+                    method="rtu",
+                    port=settings.com_port,
+                    baudrate=settings.baud_rate,
+                    parity=settings.parity.value,
+                    stopbits=settings.stop_bits,
+                    bytesize=settings.data_bits,
+                    timeout=settings.timeout,
+                )
+            elif settings.connection_type == ConnectionType.ASCII:
+                from pymodbus.client import ModbusSerialClient
+                self._client = ModbusSerialClient(
+                    method="ascii",
+                    port=settings.com_port,
+                    baudrate=settings.baud_rate,
+                    parity=settings.parity.value,
+                    stopbits=settings.stop_bits,
+                    bytesize=settings.data_bits,
+                    timeout=settings.timeout,
+                )
+            result = self._client.connect()
+            self._stats.connected = result
+            self.connection_changed.emit(result, "Connected" if result else "Connection failed")
+        except Exception as e:
+            self._stats.connected = False
+            self.connection_changed.emit(False, str(e))
+
+    def _do_disconnect(self) -> None:
+        self._disconnect_requested = False
+        self._polling = False
+        self._paused = False
+        self._disconnect_client()
 
     def _disconnect_client(self) -> None:
         if self._client and self._client.is_socket_open():
@@ -211,7 +226,11 @@ class ModbusWorker(QThread):
                 return registers
             elif result and result.isError():
                 self._stats.errors += 1
-                err_msg = str(result)
+                exc_code = getattr(result, 'exception_code', None)
+                if exc_code:
+                    err_msg = f"Exception code {exc_code}: {str(result)}"
+                else:
+                    err_msg = str(result)
                 self._stats.last_error = err_msg
                 self.error_occurred.emit(err_msg)
                 self.stats_updated.emit(self._stats)
@@ -240,6 +259,16 @@ class ModbusWorker(QThread):
     def run(self) -> None:
         self._running = True
         while self._running:
+            with QMutexLocker(self._mutex):
+                if self._connect_requested:
+                    self._connect_requested = False
+                    settings = self._pending_settings
+                    self._settings = settings
+                    self._do_connect(settings)
+                    continue
+                if self._disconnect_requested:
+                    self._do_disconnect()
+                    continue
             if not self._polling or self._paused:
                 self.msleep(100)
                 continue

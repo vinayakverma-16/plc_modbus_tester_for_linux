@@ -1,9 +1,8 @@
-import csv
 from typing import Optional
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
-    QPushButton, QLineEdit, QComboBox, QLabel, QFileDialog, QHeaderView,
+    QLineEdit, QComboBox, QLabel, QHeaderView,
     QAbstractItemView, QMenu, QApplication, QInputDialog,
 )
 from PySide6.QtCore import Signal, Qt, QTimer
@@ -48,14 +47,6 @@ class RegisterView(QWidget):
         toolbar.addWidget(self._filter_type)
 
         toolbar.addStretch()
-
-        self._export_btn = QPushButton("Export CSV")
-        self._export_btn.clicked.connect(self._export_csv)
-        toolbar.addWidget(self._export_btn)
-
-        self._clear_btn = QPushButton("Clear Changes")
-        self._clear_btn.clicked.connect(self._clear_changes)
-        toolbar.addWidget(self._clear_btn)
 
         layout.addLayout(toolbar)
 
@@ -197,6 +188,12 @@ class RegisterView(QWidget):
     def set_search(self, text: str) -> None:
         self._search_input.setText(text)
         self._apply_filter()
+
+    def clear_registers(self) -> None:
+        self._registers.clear()
+        self._flash_addresses.clear()
+        self._flash_timer.stop()
+        self._refresh_table()
 
     def _clear_changes(self) -> None:
         for reg in self._registers.values():

@@ -1,5 +1,4 @@
 import sys
-import os
 
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import Qt
@@ -8,15 +7,13 @@ from ui.main_window import MainWindow
 
 
 def main() -> None:
-    app = QApplication(sys.argv)
-    app.setApplicationName("PLC Test Utility")
-    app.setOrganizationName("PLCTestUtility")
-    app.setApplicationVersion("1.0.0")
+    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
 
-    style_path = os.path.join(os.path.dirname(__file__), "assets", "dark.qss")
-    if os.path.exists(style_path):
-        with open(style_path, encoding="utf-8") as f:
-            app.setStyleSheet(f.read())
+    app = QApplication(sys.argv)
+    app.setApplicationName("PLC Modbus Tester")
+    app.setOrganizationName("PLCModbusTester")
+    app.setApplicationVersion("1.0.0")
 
     window = MainWindow()
     window.show()
